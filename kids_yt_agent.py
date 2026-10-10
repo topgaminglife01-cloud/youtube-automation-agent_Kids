@@ -103,7 +103,7 @@ def render_video(audio_path="voiceover.mp3", output_path="final_video.mp4", is_s
     )
 
 # ---------------------------------------------------------
-# STEP 5: Automated YouTube SEO & Upload
+# STEP 5: Automated YouTube SEO & Upload (Private Mode)
 # ---------------------------------------------------------
 def upload_to_youtube(video_path, title, description, tags_list):
     creds = Credentials(
@@ -124,7 +124,7 @@ def upload_to_youtube(video_path, title, description, tags_list):
             "categoryId": "1"
         },
         "status": {
-            "privacyStatus": "public",
+            "privacyStatus": "private",  # Uploads as private
             "selfDeclaredMadeForKids": True
         }
     }
@@ -137,7 +137,7 @@ def upload_to_youtube(video_path, title, description, tags_list):
     )
     
     response = request.execute()
-    print(f"Successfully uploaded! Video ID: {response.get('id')}")
+    print(f"Successfully uploaded as PRIVATE! Video ID: {response.get('id')}")
 
 # ---------------------------------------------------------
 # MAIN ORCHESTRATOR
@@ -156,7 +156,6 @@ if __name__ == "__main__":
     tags = ["cartoon", "kids", "stories", "Trisha and Tiya"]
     keyword = "cartoon magic"
     
-    # Robust parsing for multi-line scripts
     if "SCRIPT:" in ai_raw:
         script_parts = ai_raw.split("SCRIPT:")
         script = script_parts[1].strip()
@@ -186,6 +185,6 @@ if __name__ == "__main__":
     print(f"2. Rendering Video ({file_name})...")
     render_video(output_path=file_name, is_short=is_short)
 
-    print("3. Uploading to YouTube...")
-    # upload_to_youtube(file_name, title, description, tags)
-    print(f"DONE! Generated file: {file_name}")
+    print("3. Uploading to YouTube as Private...")
+    upload_to_youtube(file_name, title, description, tags)
+    print(f"DONE! Process completed successfully.")
