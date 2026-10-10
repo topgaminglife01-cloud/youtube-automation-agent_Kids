@@ -28,7 +28,7 @@ def generate_kids_content(language="English", is_short=False):
     DESCRIPTION: <Kid-friendly description with hashtags and keywords>
     TAGS: <Comma separated tags>
     KEYWORD: <Single background search keyword like cartoon forest, magical castle, cute animals>
-    SCRIPT: <The full voiceover narration script>
+    SCRIPT: <The full multi-paragraph voiceover narration script>
     """
     
     response = client.chat.completions.create(
@@ -103,6 +103,43 @@ def render_video(audio_path="voiceover.mp3", output_path="final_video.mp4", is_s
     )
 
 # ---------------------------------------------------------
+# STEP 5: Automated YouTube SEO & Upload
+# ---------------------------------------------------------
+def upload_to_youtube(video_path, title, description, tags_list):
+    creds = Credentials(
+        token=None,
+        refresh_token=os.getenv("YT_REFRESH_TOKEN"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.getenv("YT_CLIENT_ID"),
+        client_secret=os.getenv("YT_CLIENT_SECRET")
+    )
+    
+    youtube = build("youtube", "v3", credentials=creds)
+    
+    body = {
+        "snippet": {
+            "title": title[:100],
+            "description": description,
+            "tags": tags_list,
+            "categoryId": "1"
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": True
+        }
+    }
+    
+    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media
+    )
+    
+    response = request.execute()
+    print(f"Successfully uploaded! Video ID: {response.get('id')}")
+
+# ---------------------------------------------------------
 # MAIN ORCHESTRATOR
 # ---------------------------------------------------------
 if __name__ == "__main__":
@@ -118,9 +155,17 @@ if __name__ == "__main__":
     description = "Fun stories for kids!"
     tags = ["cartoon", "kids", "stories", "Trisha and Tiya"]
     keyword = "cartoon magic"
-    script = ai_raw
     
-    for line in ai_raw.split("\n"):
+    # Robust parsing for multi-line scripts
+    if "SCRIPT:" in ai_raw:
+        script_parts = ai_raw.split("SCRIPT:")
+        script = script_parts[1].strip()
+        metadata_part = script_parts[0]
+    else:
+        script = ai_raw
+        metadata_part = ai_raw
+
+    for line in metadata_part.split("\n"):
         if "TOPIC:" in line:
             raw_topic = line.replace("TOPIC:", "").strip()
             topic = re.sub(r'[^a-zA-Z0-9]', '_', raw_topic).lower()
@@ -132,8 +177,6 @@ if __name__ == "__main__":
             tags = [t.strip() for t in line.replace("TAGS:", "").split(",")]
         elif "KEYWORD:" in line:
             keyword = line.replace("KEYWORD:", "").strip()
-        elif "SCRIPT:" in line:
-            script = line.replace("SCRIPT:", "").strip()
 
     file_name = f"{topic}_{language.lower()}.mp4"
 
@@ -143,4 +186,6 @@ if __name__ == "__main__":
     print(f"2. Rendering Video ({file_name})...")
     render_video(output_path=file_name, is_short=is_short)
 
+    print("3. Uploading to YouTube...")
+    # upload_to_youtube(file_name, title, description, tags)
     print(f"DONE! Generated file: {file_name}")
