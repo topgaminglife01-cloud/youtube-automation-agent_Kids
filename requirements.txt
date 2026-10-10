@@ -1,5 +1,6 @@
 groq
 edge-tts
+gtts
 moviepy==1.0.3
 requests
 google-api-python-client
