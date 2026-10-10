@@ -2,8 +2,9 @@ import os
 import requests
 import asyncio
 import edge_tts
+from gtts import gTTS
 from groq import Groq
-from moviepy.editor import VideoFileClip, AudioFileClip, ColorClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip, AudioFileClip, ColorClip
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -15,7 +16,6 @@ import re
 # ---------------------------------------------------------
 def generate_kids_content(language="English", is_short=False):
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    
     duration_type = "30-second viral Short" if is_short else "10-minute long moral bedtime story for kids featuring two characters named Trisha and Tiya"
     
     prompt = f"""
@@ -38,13 +38,21 @@ def generate_kids_content(language="English", is_short=False):
     return response.choices[0].message.content
 
 # ---------------------------------------------------------
-# STEP 2: Multi-Language Voiceover (Edge-TTS)
+# STEP 2: Multi-Language Voiceover with gTTS Fallback
 # ---------------------------------------------------------
 async def generate_voiceover(text, language="English", output_audio="voiceover.mp3"):
-    # Select voice based on language
-    voice = "en-US-AnaNeural" if language == "English" else "hi-IN-SwaraNeural"
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_audio)
+    try:
+        voice = "en-US-AnaNeural" if language == "English" else "hi-IN-SwaraNeural"
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(output_audio)
+    except Exception as e:
+        print(f"Edge-TTS failed: {e}. Switching to gTTS fallback...")
+    
+    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
+        print("Using gTTS fallback for voiceover generation...")
+        lang_code = 'en' if language == 'English' else 'hi'
+        tts = gTTS(text=text, lang=lang_code, slow=False)
+        tts.save(output_audio)
 
 # ---------------------------------------------------------
 # STEP 3: Fetch Stock Animation/Background Footage
@@ -64,7 +72,6 @@ def download_background(query, output_filename="background.mp4"):
     except Exception as e:
         print(f"API fetch error: {e}")
     
-    # Fallback colorful kid-friendly background
     print("Using fallback solid backdrop...")
     backup = ColorClip(size=(1080, 1920), color=(255, 182, 193), duration=30)
     backup.write_videofile(output_filename, fps=24, codec="libx264")
@@ -79,13 +86,10 @@ def render_video(audio_path="voiceover.mp3", output_path="final_video.mp4", is_s
     base_clip = VideoFileClip("background.mp4")
     
     if is_short:
-        # Shorts: max 60 seconds
         video = base_clip.subclip(0, min(60, audio.duration))
         if video.duration < audio.duration:
             video = video.loop(duration=audio.duration)
     else:
-        # Long Video: Must be at least 10 minutes (600 seconds)
-        # If audio/story is shorter, loop the background footage to match >= 600 seconds
         target_duration = max(600, audio.duration)
         video = base_clip.loop(duration=target_duration)
         
@@ -99,55 +103,16 @@ def render_video(audio_path="voiceover.mp3", output_path="final_video.mp4", is_s
     )
 
 # ---------------------------------------------------------
-# STEP 5: Automated YouTube SEO & Upload (Data API v3)
-# ---------------------------------------------------------
-def upload_to_youtube(video_path, title, description, tags_list):
-    creds = Credentials(
-        token=None,
-        refresh_token=os.getenv("YT_REFRESH_TOKEN"),
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=os.getenv("YT_CLIENT_ID"),
-        client_secret=os.getenv("YT_CLIENT_SECRET")
-    )
-    
-    youtube = build("youtube", "v3", credentials=creds)
-    
-    body = {
-        "snippet": {
-            "title": title[:100],  # YouTube title limit
-            "description": description,
-            "tags": tags_list,
-            "categoryId": "1"  # Film & Animation category for cartoons
-        },
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": True  # MANDATORY for kids channels under FTC regulations
-        }
-    }
-    
-    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media
-    )
-    
-    response = request.execute()
-    print(f"Successfully uploaded! Video ID: {response.get('id')}")
-
-# ---------------------------------------------------------
 # MAIN ORCHESTRATOR
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # Choose configuration: Language & Format
-    language = os.getenv("VIDEO_LANGUAGE", "English")  # Can be 'English' or 'Hindi'
+    language = os.getenv("VIDEO_LANGUAGE", "English")
     is_short = os.getenv("IS_SHORT", "false").lower() == "true"
     
     print(f"Generating {'Short' if is_short else 'Long-form (10+ min)'} video in {language}...")
     
     ai_raw = generate_kids_content(language=language, is_short=is_short)
     
-    # Parse AI response
     topic = "trisha_tiya_story"
     title = "Trisha and Tiya Tales Time"
     description = "Fun stories for kids!"
@@ -178,6 +143,4 @@ if __name__ == "__main__":
     print(f"2. Rendering Video ({file_name})...")
     render_video(output_path=file_name, is_short=is_short)
 
-    print("3. Uploading to YouTube with Kids SEO & Compliance...")
-    # upload_to_youtube(file_name, title, description, tags)
     print(f"DONE! Generated file: {file_name}")
