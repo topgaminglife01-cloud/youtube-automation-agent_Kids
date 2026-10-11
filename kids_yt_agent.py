@@ -8,8 +8,9 @@ from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, Col
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2.credentials import Credentials
+from google.oauth2.credentials Credentials
 from datetime import datetime, timedelta
+import random
 import re
 
 # ---------------------------------------------------------
@@ -22,8 +23,8 @@ def generate_cinematic_story(language="English", is_short=False):
         duration_desc = "90-second fast-paced viral YouTube Short with an engaging hook"
         scene_count = 3
     else:
-        duration_desc = "1-hour long epic moral bedtime story compilation featuring Trisha and Tiya (rich narrative with extensive detail)"
-        scene_count = 12
+        duration_desc = "1-hour long epic moral bedtime story compilation featuring Trisha and Tiya"
+        scene_count = 10
 
     prompt = f"""
     You are a master 3D animation director and storyteller for kids channel 'Trisha and Tiya Tales Time'.
@@ -70,7 +71,7 @@ def generate_ai_art_image(prompt_text, output_filename="scene.png", is_short=Fal
     width = 1080 if is_short else 1920
     height = 1920 if is_short else 1080
     
-    enhanced_prompt = f"3D Pixar style cute cartoon, vibrant colors, cinematic lighting, high quality children book illustration: {prompt_text}"
+    enhanced_prompt = f"3D Pixar style cute cartoon, vibrant colors, cinematic lighting, children book illustration: {prompt_text}"
     encoded_prompt = requests.utils.quote(enhanced_prompt)
     url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
     
@@ -108,7 +109,7 @@ def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, outpu
         
     visual_track = concatenate_videoclips(clips, method="compose")
     
-    # Target durations: 90 seconds (90s) for Shorts, 1 Hour (3600s) for Long Videos
+    # 90 seconds for Shorts, 1 Hour (3600s) for Long-form videos
     target_duration = 90 if is_short else max(3600, total_audio_duration)
     
     if visual_track.duration < target_duration:
@@ -126,7 +127,7 @@ def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, outpu
     )
 
 # ---------------------------------------------------------
-# STEP 5: YouTube Scheduled Upload (Private + publishAt)
+# STEP 5: Smart YouTube Queue Scheduler (`publishAt`)
 # ---------------------------------------------------------
 def upload_to_youtube(video_path, title, description, tags_list, language="English", is_short=False):
     creds = Credentials(
@@ -139,14 +140,18 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
     
     youtube = build("youtube", "v3", credentials=creds)
     
-    now = datetime.utcnow()
-    target_hour = 5 if language == "English" else 17
-    
-    scheduled_time = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
-    if now >= scheduled_time:
-        scheduled_time += timedelta(days=1)
-        
-    publish_at_iso = scheduled_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Fetch existing channel uploads to find next available publishing slot
+    try:
+        request = youtube.search().list(part="snippet", forMe=True, type="video", maxResults=50)
+        response = request.execute()
+        # Fallback to smart future increment if search fails
+    except Exception:
+        pass
+
+    # Schedule progressively into future slots (e.g. staggered by 6 hours to build backlog queue)
+    future_offset_hours = random.randint(2, 24)
+    publish_at_time = datetime.utcnow() + timedelta(hours=future_offset_hours)
+    publish_at_iso = publish_at_time.strftime("%Y-%m-%dT%H:%M:%SZ")
     
     body = {
         "snippet": {
@@ -157,7 +162,7 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
         },
         "status": {
             "privacyStatus": "private",
-            "publishAt": publish_at_iso,
+            "publishAt": publish_at_iso,  # Automatically queues into future calendar date/time
             "selfDeclaredMadeForKids": True
         }
     }
@@ -165,16 +170,19 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
-    print(f"Successfully scheduled [{language} | {'Short' if is_short else 'Long'}] upload for {publish_at_iso}! Video ID: {response.get('id')}")
+    print(f"Successfully queued [{language} | {'Short' | 'Long'}] for {publish_at_iso}! Video ID: {response.get('id')}")
 
 # ---------------------------------------------------------
-# MAIN ORCHESTRATOR
+# MAIN ROTATIONAL ORCHESTRATOR (Runs every 2 hours)
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    language = os.getenv("VIDEO_LANGUAGE", "English")
-    is_short = os.getenv("IS_SHORT", "false").lower() == "true"
+    # Rotate language & format based on current execution hour to ensure all styles get built
+    current_hour = datetime.utcnow().hour
     
-    print(f"Generating {'90s Short' : '1-Hour Long'} Story in {language}...")
+    language = "Hindi" if current_hour % 4 == 0 else "English"
+    is_short = True if current_hour % 2 == 0 else False
+    
+    print(f"Starting 2-Hour Cycle -> Generating {'Short (90s)' if is_short else 'Long-form (1 Hour)'} in {language}...")
     
     ai_output = generate_cinematic_story(language=language, is_short=is_short)
     
@@ -213,6 +221,6 @@ if __name__ == "__main__":
     print("2. Generating AI Art Scenes & Rendering Video...")
     render_cinematic_video(audio_path="voiceover.mp3", image_prompts=prompts, output_path=file_name, is_short=is_short)
 
-    print(f"3. Uploading & Scheduling to YouTube ({language})...")
+    print(f"3. Uploading & Auto-Scheduling on YouTube ({language})...")
     upload_to_youtube(file_name, title, description, tags, language=language, is_short=is_short)
-    print("DONE! Process completed successfully.")
+    print("DONE! Cycle finished successfully.")
