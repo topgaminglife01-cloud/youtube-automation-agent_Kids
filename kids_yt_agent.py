@@ -4,7 +4,7 @@ import asyncio
 import edge_tts
 from gtts import gTTS
 from groq import Groq
-from moviepy.editor import VideoFileClip, AudioFileClip, ColorClip
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, ColorClip
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -12,23 +12,35 @@ from google.oauth2.credentials import Credentials
 import re
 
 # ---------------------------------------------------------
-# STEP 1: AI Script & Metadata Generation (Groq)
+# STEP 1: AI Script & Scene Prompts Generation (Groq)
 # ---------------------------------------------------------
-def generate_kids_content(language="English", is_short=False):
+def generate_cinematic_story(language="English"):
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    duration_type = "30-second viral Short" if is_short else "10-minute long moral bedtime story for kids featuring two characters named Trisha and Tiya"
-    
     prompt = f"""
-    You are a professional children's storyteller and YouTube SEO expert for the channel 'Trisha and Tiya Tales Time'.
-    Create a {duration_type} in {language}.
+    You are a master 3D animation director and storyteller for kids channel 'Trisha and Tiya Tales Time'.
+    Create a 10-minute moral bedtime story script featuring two cartoon girls named Trisha and Tiya in {language}.
+    Break the story down into 5 distinct visual scenes.
     
-    Provide your output strictly in this format:
-    TOPIC: <Short catchy topic name for file naming>
-    TITLE: <SEO optimized YouTube title with emojis and #Shorts if short>
-    DESCRIPTION: <Kid-friendly description with hashtags and keywords>
+    Provide output strictly in this format:
+    TOPIC: <story title slug>
+    TITLE: <YouTube SEO Title with Emojis>
+    DESCRIPTION: <Kid-friendly description with hashtags>
     TAGS: <Comma separated tags>
-    KEYWORD: <Single background search keyword like cartoon forest, magical castle, cute animals>
-    SCRIPT: <The full multi-paragraph voiceover narration script>
+    
+    SCENE 1 PROMPT: <Detailed 3D Pixar style visual description for image generation>
+    SCENE 1 SCRIPT: <Narration text for scene 1>
+    
+    SCENE 2 PROMPT: <Detailed 3D Pixar style visual description>
+    SCENE 2 SCRIPT: <Narration text for scene 2>
+    
+    SCENE 3 PROMPT: <Detailed 3D Pixar style visual description>
+    SCENE 3 SCRIPT: <Narration text for scene 3>
+    
+    SCENE 4 PROMPT: <Detailed 3D Pixar style visual description>
+    SCENE 4 SCRIPT: <Narration text for scene 4>
+    
+    SCENE 5 PROMPT: <Detailed 3D Pixar style visual description>
+    SCENE 5 SCRIPT: <Narration text for scene 5>
     """
     
     response = client.chat.completions.create(
@@ -38,7 +50,7 @@ def generate_kids_content(language="English", is_short=False):
     return response.choices[0].message.content
 
 # ---------------------------------------------------------
-# STEP 2: Multi-Language Voiceover with gTTS Fallback
+# STEP 2: Voiceover Generation
 # ---------------------------------------------------------
 async def generate_voiceover(text, language="English", output_audio="voiceover.mp3"):
     try:
@@ -46,64 +58,72 @@ async def generate_voiceover(text, language="English", output_audio="voiceover.m
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(output_audio)
     except Exception as e:
-        print(f"Edge-TTS failed: {e}. Switching to gTTS fallback...")
-    
-    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        print("Using gTTS fallback for voiceover generation...")
+        print(f"Edge-TTS failed: {e}. Using gTTS fallback...")
         lang_code = 'en' if language == 'English' else 'hi'
         tts = gTTS(text=text, lang=lang_code, slow=False)
         tts.save(output_audio)
 
 # ---------------------------------------------------------
-# STEP 3: Fetch Stock Animation/Background Footage
+# STEP 3: AI Art Frame Generation (Pollinations AI / Free API)
 # ---------------------------------------------------------
-def download_background(query, output_filename="background.mp4"):
-    api_key = os.getenv("PIXABAY_API_KEY")
-    url = f"https://pixabay.com/api/videos/?key={api_key}&q={query}&per_page=3&video_type=film"
+def generate_ai_art_image(prompt_text, output_filename="scene.png"):
+    # Using free public AI image generation endpoints optimized for 3D Pixar / Cartoon styles
+    enhanced_prompt = f"3D Pixar style cute cartoon, vibrant colors, cinematic lighting, high quality children book illustration: {prompt_text}"
+    encoded_prompt = requests.utils.quote(enhanced_prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&nologo=true"
     
     try:
-        res = requests.get(url).json()
-        if "hits" in res and len(res["hits"]) > 0:
-            video_url = res["hits"][0]["videos"]["medium"]["url"]
+        res = requests.get(url, timeout=30)
+        if res.status_code == 200:
             with open(output_filename, "wb") as f:
-                f.write(requests.get(video_url).content)
-            print(f"Downloaded video for: {query}")
-            return
+                f.write(res.content)
+            print(f"Generated AI Art frame for: {prompt_text[:30]}...")
+            return output_filename
     except Exception as e:
-        print(f"API fetch error: {e}")
+        print(f"AI Image generation error: {e}")
     
-    print("Using fallback solid backdrop...")
-    backup = ColorClip(size=(1080, 1920), color=(255, 182, 193), duration=30)
-    backup.write_videofile(output_filename, fps=24, codec="libx264")
+    # Fallback solid color image if API fails
+    backup = ColorClip(size=(1280, 720), color=(255, 182, 193), duration=5)
+    backup.save_frame(output_filename)
+    return output_filename
 
 # ---------------------------------------------------------
-# STEP 4: Render Video (Long-form >10 mins or Short)
+# STEP 4: Render Cinematic Multi-Scene Video (>10 mins)
 # ---------------------------------------------------------
-def render_video(audio_path="voiceover.mp3", output_path="final_video.mp4", is_short=False):
+def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, output_path="final_video.mp4"):
     audio = AudioFileClip(audio_path)
-    download_background("cartoon magic forest animation")
+    total_audio_duration = audio.duration
     
-    base_clip = VideoFileClip("background.mp4")
-    
-    if is_short:
-        video = base_clip.subclip(0, min(60, audio.duration))
-        if video.duration < audio.duration:
-            video = video.loop(duration=audio.duration)
-    else:
-        target_duration = max(600, audio.duration)
-        video = base_clip.loop(duration=target_duration)
+    if not image_prompts:
+        image_prompts = ["Cute cartoon magical adventure forest with Trisha and Tiya"]
         
-    final_clip = video.set_audio(audio)
+    scene_duration = max(10, total_audio_duration / len(image_prompts))
+    
+    clips = []
+    for i, prompt in enumerate(image_prompts):
+        img_file = f"scene_{i}.png"
+        generate_ai_art_image(prompt, img_file)
+        clip = ImageClip(img_file).set_duration(scene_duration)
+        clips.append(clip)
+        
+    visual_track = concatenate_videoclips(clips, method="compose")
+    
+    # Loop visual track if needed to guarantee >= 10 mins (600 seconds) for monetization watch-time
+    target_duration = max(600, total_audio_duration)
+    if visual_track.duration < target_duration:
+        visual_track = visual_track.loop(duration=target_duration)
+        
+    final_clip = visual_track.set_audio(audio)
     final_clip.write_videofile(
-        output_path, 
-        fps=24, 
-        codec="libx264", 
+        output_path,
+        fps=24,
+        codec="libx264",
         audio_codec="aac",
         threads=2
     )
 
 # ---------------------------------------------------------
-# STEP 5: Automated YouTube SEO & Upload (Private Mode)
+# STEP 5: YouTube Upload (Private Mode)
 # ---------------------------------------------------------
 def upload_to_youtube(video_path, title, description, tags_list):
     creds = Credentials(
@@ -115,7 +135,6 @@ def upload_to_youtube(video_path, title, description, tags_list):
     )
     
     youtube = build("youtube", "v3", credentials=creds)
-    
     body = {
         "snippet": {
             "title": title[:100],
@@ -124,18 +143,13 @@ def upload_to_youtube(video_path, title, description, tags_list):
             "categoryId": "1"
         },
         "status": {
-            "privacyStatus": "private",  # Uploads as private
+            "privacyStatus": "private",
             "selfDeclaredMadeForKids": True
         }
     }
     
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media
-    )
-    
+    request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
     print(f"Successfully uploaded as PRIVATE! Video ID: {response.get('id')}")
 
@@ -144,47 +158,46 @@ def upload_to_youtube(video_path, title, description, tags_list):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     language = os.getenv("VIDEO_LANGUAGE", "English")
-    is_short = os.getenv("IS_SHORT", "false").lower() == "true"
+    print(f"Generating Cinematic 3D Story in {language}...")
     
-    print(f"Generating {'Short' if is_short else 'Long-form (10+ min)'} video in {language}...")
+    ai_output = generate_cinematic_story(language=language)
     
-    ai_raw = generate_kids_content(language=language, is_short=is_short)
+    # Parsing output
+    topic = "trisha_tiya_3d_adventure"
+    title = "Trisha and Tiya 3D Cartoon Story"
+    description = "Magical bedtime stories for kids."
+    tags = ["cartoon", "3D animation", "kids stories", "Trisha and Tiya"]
     
-    topic = "trisha_tiya_story"
-    title = "Trisha and Tiya Tales Time"
-    description = "Fun stories for kids!"
-    tags = ["cartoon", "kids", "stories", "Trisha and Tiya"]
-    keyword = "cartoon magic"
+    prompts = []
+    full_script = ""
     
-    if "SCRIPT:" in ai_raw:
-        script_parts = ai_raw.split("SCRIPT:")
-        script = script_parts[1].strip()
-        metadata_part = script_parts[0]
-    else:
-        script = ai_raw
-        metadata_part = ai_raw
-
-    for line in metadata_part.split("\n"):
+    for line in ai_output.split("\n"):
         if "TOPIC:" in line:
-            raw_topic = line.replace("TOPIC:", "").strip()
-            topic = re.sub(r'[^a-zA-Z0-9]', '_', raw_topic).lower()
+            topic = re.sub(r'[^a-zA-Z0-9]', '_', line.replace("TOPIC:", "").strip()).lower()
         elif "TITLE:" in line:
             title = line.replace("TITLE:", "").strip()
         elif "DESCRIPTION:" in line:
             description = line.replace("DESCRIPTION:", "").strip()
         elif "TAGS:" in line:
             tags = [t.strip() for t in line.replace("TAGS:", "").split(",")]
-        elif "KEYWORD:" in line:
-            keyword = line.replace("KEYWORD:", "").strip()
+        elif "PROMPT:" in line:
+            prompts.append(line.split("PROMPT:")[1].strip())
+        elif "SCRIPT:" in line:
+            full_script += line.split("SCRIPT:")[1].strip() + " "
+
+    if not prompts:
+        prompts = ["A magical cartoon world with two cute kids named Trisha and Tiya"]
+    if not full_script.strip():
+        full_script = ai_output
 
     file_name = f"{topic}_{language.lower()}.mp4"
 
-    print(f"1. Generating Voiceover in {language}...")
-    asyncio.run(generate_voiceover(script, language=language))
+    print("1. Generating Voiceover...")
+    asyncio.run(generate_voiceover(full_script, language=language))
 
-    print(f"2. Rendering Video ({file_name})...")
-    render_video(output_path=file_name, is_short=is_short)
+    print("2. Generating AI Art Scenes & Rendering Cinematic Video...")
+    render_cinematic_video(audio_path="voiceover.mp3", image_prompts=prompts, output_path=file_name)
 
     print("3. Uploading to YouTube as Private...")
     upload_to_youtube(file_name, title, description, tags)
-    print(f"DONE! Process completed successfully.")
+    print("DONE! Cinematic 3D style video processed successfully.")
