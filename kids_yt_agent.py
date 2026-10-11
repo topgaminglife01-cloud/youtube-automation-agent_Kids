@@ -8,7 +8,7 @@ from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, Col
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2.credentials Credentials
+from google.oauth2.credentials import Credentials
 from datetime import datetime, timedelta
 import random
 import re
@@ -109,7 +109,6 @@ def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, outpu
         
     visual_track = concatenate_videoclips(clips, method="compose")
     
-    # 90 seconds for Shorts, 1 Hour (3600s) for Long-form videos
     target_duration = 90 if is_short else max(3600, total_audio_duration)
     
     if visual_track.duration < target_duration:
@@ -140,15 +139,6 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
     
     youtube = build("youtube", "v3", credentials=creds)
     
-    # Fetch existing channel uploads to find next available publishing slot
-    try:
-        request = youtube.search().list(part="snippet", forMe=True, type="video", maxResults=50)
-        response = request.execute()
-        # Fallback to smart future increment if search fails
-    except Exception:
-        pass
-
-    # Schedule progressively into future slots (e.g. staggered by 6 hours to build backlog queue)
     future_offset_hours = random.randint(2, 24)
     publish_at_time = datetime.utcnow() + timedelta(hours=future_offset_hours)
     publish_at_iso = publish_at_time.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -162,7 +152,7 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
         },
         "status": {
             "privacyStatus": "private",
-            "publishAt": publish_at_iso,  # Automatically queues into future calendar date/time
+            "publishAt": publish_at_iso,
             "selfDeclaredMadeForKids": True
         }
     }
@@ -170,13 +160,12 @@ def upload_to_youtube(video_path, title, description, tags_list, language="Engli
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
-    print(f"Successfully queued [{language} | {'Short' | 'Long'}] for {publish_at_iso}! Video ID: {response.get('id')}")
+    print(f"Successfully queued [{language} | {'Short' if is_short else 'Long'}] for {publish_at_iso}! Video ID: {response.get('id')}")
 
 # ---------------------------------------------------------
-# MAIN ROTATIONAL ORCHESTRATOR (Runs every 2 hours)
+# MAIN ROTATIONAL ORCHESTRATOR
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # Rotate language & format based on current execution hour to ensure all styles get built
     current_hour = datetime.utcnow().hour
     
     language = "Hindi" if current_hour % 4 == 0 else "English"
