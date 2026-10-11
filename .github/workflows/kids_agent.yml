@@ -1,21 +1,9 @@
-name: Kids YouTube Automation Agent
+name: Kids YouTube 24/7 Automation Agent
 
 on:
   schedule:
-    - cron: '0 5 * * *'    # 5:00 AM UTC: English Long-form (1 Hour)
-    - cron: '0 17 * * *'   # 5:00 PM UTC: Hindi Long-form (1 Hour)
-    - cron: '30 9 * * *'   # 9:30 AM UTC: English Short (90s)
-    - cron: '30 15 * * *'  # 3:30 PM UTC: Hindi Short (90s)
+    - cron: '0 */2 * * *'   # Runs every 2 hours around the clock
   workflow_dispatch:
-    inputs:
-      video_type:
-        description: 'Select Video Type'
-        required: true
-        default: 'long'
-        type: choice
-        options:
-          - long
-          - short
 
 jobs:
   run-agent:
@@ -37,12 +25,10 @@ jobs:
       - name: Install Python Packages
         run: pip install -r requirements.txt
 
-      - name: Run Kids Cinematic Agent
+      - name: Run Master Kids Agent Rotation
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-          VIDEO_LANGUAGE: ${{ github.event.schedule == '0 17 * * *' || github.event.schedule == '30 15 * * *' && 'Hindi' || 'English' }}
-          IS_SHORT: ${{ github.event.inputs.video_type == 'short' || startsWith(github.event.schedule, '30') && 'true' || 'false' }}
         run: python kids_yt_agent.py
