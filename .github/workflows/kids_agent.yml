@@ -2,9 +2,20 @@ name: Kids YouTube Automation Agent
 
 on:
   schedule:
-    - cron: '0 5 * * *'    # Runs every day at 5:00 AM UTC (English Video)
-    - cron: '0 17 * * *'   # Runs every day at 5:00 PM UTC (Hindi Video)
+    - cron: '0 5 * * *'    # 5:00 AM UTC: English Long-form (1 Hour)
+    - cron: '0 17 * * *'   # 5:00 PM UTC: Hindi Long-form (1 Hour)
+    - cron: '30 9 * * *'   # 9:30 AM UTC: English Short (90s)
+    - cron: '30 15 * * *'  # 3:30 PM UTC: Hindi Short (90s)
   workflow_dispatch:
+    inputs:
+      video_type:
+        description: 'Select Video Type'
+        required: true
+        default: 'long'
+        type: choice
+        options:
+          - long
+          - short
 
 jobs:
   run-agent:
@@ -32,5 +43,6 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-          VIDEO_LANGUAGE: ${{ 'Hindi' || 'English' }}
+          VIDEO_LANGUAGE: ${{ github.event.schedule == '0 17 * * *' || github.event.schedule == '30 15 * * *' && 'Hindi' || 'English' }}
+          IS_SHORT: ${{ github.event.inputs.video_type == 'short' || startsWith(github.event.schedule, '30') && 'true' || 'false' }}
         run: python kids_yt_agent.py
