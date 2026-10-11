@@ -32,5 +32,5 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-          VIDEO_LANGUAGE: ${{ github.event.schedule == '0 17 * * *' && 'Hindi' || 'English' }}
+          VIDEO_LANGUAGE: ${{ 'Hindi' || 'English' }}
         run: python kids_yt_agent.py
