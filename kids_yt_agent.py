@@ -9,6 +9,7 @@ import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
+from datetime import datetime, timedelta
 import re
 
 # ---------------------------------------------------------
@@ -64,10 +65,9 @@ async def generate_voiceover(text, language="English", output_audio="voiceover.m
         tts.save(output_audio)
 
 # ---------------------------------------------------------
-# STEP 3: AI Art Frame Generation (Pollinations AI / Free API)
+# STEP 3: AI Art Frame Generation (Pollinations AI)
 # ---------------------------------------------------------
 def generate_ai_art_image(prompt_text, output_filename="scene.png"):
-    # Using free public AI image generation endpoints optimized for 3D Pixar / Cartoon styles
     enhanced_prompt = f"3D Pixar style cute cartoon, vibrant colors, cinematic lighting, high quality children book illustration: {prompt_text}"
     encoded_prompt = requests.utils.quote(enhanced_prompt)
     url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=720&nologo=true"
@@ -77,12 +77,10 @@ def generate_ai_art_image(prompt_text, output_filename="scene.png"):
         if res.status_code == 200:
             with open(output_filename, "wb") as f:
                 f.write(res.content)
-            print(f"Generated AI Art frame for: {prompt_text[:30]}...")
             return output_filename
     except Exception as e:
         print(f"AI Image generation error: {e}")
     
-    # Fallback solid color image if API fails
     backup = ColorClip(size=(1280, 720), color=(255, 182, 193), duration=5)
     backup.save_frame(output_filename)
     return output_filename
@@ -107,8 +105,6 @@ def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, outpu
         clips.append(clip)
         
     visual_track = concatenate_videoclips(clips, method="compose")
-    
-    # Loop visual track if needed to guarantee >= 10 mins (600 seconds) for monetization watch-time
     target_duration = max(600, total_audio_duration)
     if visual_track.duration < target_duration:
         visual_track = visual_track.loop(duration=target_duration)
@@ -123,9 +119,9 @@ def render_cinematic_video(audio_path="voiceover.mp3", image_prompts=None, outpu
     )
 
 # ---------------------------------------------------------
-# STEP 5: YouTube Upload (Private Mode)
+# STEP 5: YouTube Scheduled Upload (Private + publishAt)
 # ---------------------------------------------------------
-def upload_to_youtube(video_path, title, description, tags_list):
+def upload_to_youtube(video_path, title, description, tags_list, language="English"):
     creds = Credentials(
         token=None,
         refresh_token=os.getenv("YT_REFRESH_TOKEN"),
@@ -135,6 +131,17 @@ def upload_to_youtube(video_path, title, description, tags_list):
     )
     
     youtube = build("youtube", "v3", credentials=creds)
+    
+    # Calculate next empty date & target slot (5 AM for English, 5 PM for Hindi)
+    now = datetime.utcnow()
+    target_hour = 5 if language == "English" else 17
+    
+    scheduled_time = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
+    if now >= scheduled_time:
+        scheduled_time += timedelta(days=1)
+        
+    publish_at_iso = scheduled_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
     body = {
         "snippet": {
             "title": title[:100],
@@ -144,6 +151,7 @@ def upload_to_youtube(video_path, title, description, tags_list):
         },
         "status": {
             "privacyStatus": "private",
+            "publishAt": publish_at_iso,  # Automatically queues for the slot
             "selfDeclaredMadeForKids": True
         }
     }
@@ -151,7 +159,7 @@ def upload_to_youtube(video_path, title, description, tags_list):
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
-    print(f"Successfully uploaded as PRIVATE! Video ID: {response.get('id')}")
+    print(f"Successfully scheduled [{language}] upload for {publish_at_iso}! Video ID: {response.get('id')}")
 
 # ---------------------------------------------------------
 # MAIN ORCHESTRATOR
@@ -162,7 +170,6 @@ if __name__ == "__main__":
     
     ai_output = generate_cinematic_story(language=language)
     
-    # Parsing output
     topic = "trisha_tiya_3d_adventure"
     title = "Trisha and Tiya 3D Cartoon Story"
     description = "Magical bedtime stories for kids."
@@ -198,6 +205,6 @@ if __name__ == "__main__":
     print("2. Generating AI Art Scenes & Rendering Cinematic Video...")
     render_cinematic_video(audio_path="voiceover.mp3", image_prompts=prompts, output_path=file_name)
 
-    print("3. Uploading to YouTube as Private...")
-    upload_to_youtube(file_name, title, description, tags)
-    print("DONE! Cinematic 3D style video processed successfully.")
+    print(f"3. Uploading & Scheduling to YouTube ({language})...")
+    upload_to_youtube(file_name, title, description, tags, language=language)
+    print("DONE! Scheduled successfully.")
